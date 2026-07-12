@@ -670,10 +670,18 @@
     function closeModal() { document.getElementById('modal').classList.remove('show'); }
 
     function activateAccount() {
-        sessionStorage.setItem('nxt_payment', JSON.stringify({ planName: plan, amount: cfg.amount }));
-        window.location.href = 'payment.html';
+    sessionStorage.setItem('nxt_payment', JSON.stringify({ planName: plan, amount: cfg.amount }));
+    
+    if (cfg.amount == 10500) {
+        window.location.href = 'https://flutterwave.com/pay/awykdpgiflxw';
     }
-
+    else if (cfg.amount == 17500) {
+        window.location.href = 'https://flutterwave.com/pay/bntdagcyxyxc';
+    }
+    else {
+        window.location.href = 'payment.html';  // fallback
+    }
+}
     function showToast(msg) {
         const t = document.createElement('div');
         t.className = 'toast'; t.textContent = msg;
