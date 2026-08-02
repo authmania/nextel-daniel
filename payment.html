@@ -158,10 +158,11 @@ body{
 
 .contact-row{
   display:grid;
-  grid-template-columns:1fr 1fr;
+  grid-template-columns:1fr; /* becomes 2 cols once the WhatsApp link loads */
   gap:10px;
   margin-top:16px;
 }
+.contact-row.two-up{grid-template-columns:1fr 1fr;}
 .contact-btn{
   height:50px;
   border:none;
@@ -204,7 +205,7 @@ body{
   </div>
 
   <h1 class="pay-title">Complete Your Payment</h1>
-  <p class="pay-sub" id="paySubTitle">Starter Package &middot; &#8358;10,000</p>
+  <p class="pay-sub" id="paySubTitle">Loading your package&hellip;</p>
 
   <div class="pay-card">
 
@@ -242,12 +243,18 @@ body{
       <strong>After payment, send your proof of transfer</strong> to our support team and your account will be activated within <strong>5–15 minutes</strong>.
     </div>
 
-    <div style="margin-top:16px;">
-      <button class="contact-btn telegram" style="width:100%;" onclick="contactTelegram()">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M21.946 2.68a1.5 1.5 0 0 0-1.531-.21L2.33 9.607a1.5 1.5 0 0 0 .104 2.803l4.02 1.342 1.97 6.072a1 1 0 0 0 1.7.377l2.44-2.55 4.69 3.49a1.5 1.5 0 0 0 2.35-1.01L22 4.156a1.5 1.5 0 0 0-.054-1.476zM10 13.5l-1.3 3.9-1.3-4 8.6-5.9L10 13.5z" fill="#fff"/>
+    <div class="contact-row" id="contactRow">
+      <button class="contact-btn whatsapp" id="waBtn" onclick="contactWhatsapp()" style="display:none;">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.2-.7.1-.2.3-.7 1-.9 1.2-.2.2-.3.2-.6.1-.3-.2-1.2-.5-2.3-1.4-.9-.8-1.4-1.7-1.6-2-.2-.3 0-.5.1-.6l.5-.5c.1-.2.2-.3.3-.5 0-.2 0-.4 0-.5 0-.2-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.1.2 2.1 3.2 5 4.5.7.3 1.2.5 1.7.6.7.2 1.3.2 1.8.1.6-.1 1.7-.7 1.9-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.2-.6-.4zM12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.4A10 10 0 1 0 12 2zm0 18.2c-1.6 0-3.1-.4-4.4-1.2l-.3-.2-3.1.8.8-3-.2-.3A8.2 8.2 0 1 1 12 20.2z"/>
         </svg>
-        Send Proof on Telegram
+        WhatsApp
+      </button>
+      <button class="contact-btn telegram" id="tgBtn" onclick="contactTelegram()">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M21.946 2.68a1.5 1.5 0 0 0-1.531-.21L2.33 9.607a1.5 1.5 0 0 0 .104 2.803l4.02 1.342 1.97 6.072a1 1 0 0 0 1.7.377l2.44-2.55 4.69 3.49a1.5 1.5 0 0 0 2.35-1.01L22 4.156a1.5 1.5 0 0 0-.054-1.476zM10 13.5l-1.3 3.9-1.3-4 8.6-5.9L10 13.5z"/>
+        </svg>
+        Telegram
       </button>
     </div>
 
@@ -274,27 +281,45 @@ body{
   });
   const db = getFirestore(app, "(default)");
 
-  // Load config from Firestore
+  // Populate plan details carried over from the dashboard.
+  // Falls back to the plan saved at registration if the session was lost (e.g. a reload in a new tab).
+  const PLAN_AMOUNTS = { "eSIM": 10500, "Royal eSIM": 17500 };
   try {
-    const snap = await getDoc(doc(db, "account", "nexteldaniel"));
-    if (snap.exists()) {
-      const d = snap.data();
-      if (d.telegramLink)  window._tgLink = d.telegramLink;
-      document.getElementById("bankNameVal").textContent   = d.bankName     || "—";
-      document.getElementById("accountNameVal").textContent = d.accountName  || "—";
-      document.getElementById("accountNum").textContent    = d.accountNumber || "—";
-      window._nxtAccountNumber = d.accountNumber || "";
-    }
-  } catch(_) {}
+    const session  = JSON.parse(sessionStorage.getItem("nxt_payment") || "{}");
+    const planName = session.planName || localStorage.getItem("nxt_plan") || "";
+    const amount   = Number(session.amount) || PLAN_AMOUNTS[planName] || 0;
 
-  // Populate plan details from sessionStorage
-  try {
-    const session = JSON.parse(sessionStorage.getItem("nxt_payment") || "{}");
-    if (session.planName && session.amount) {
-      const fmt = "₦" + Number(session.amount).toLocaleString("en-NG");
-      document.getElementById("paySubTitle").textContent = session.planName + " · " + fmt;
+    document.getElementById("paySubTitle").textContent = planName
+      ? planName + " · ₦" + amount.toLocaleString("en-NG")
+      : "Complete your activation payment";
+  } catch(_) {
+    document.getElementById("paySubTitle").textContent = "Complete your activation payment";
+  }
+
+  // Load bank details + support links from Firestore (not awaited at top level,
+  // so the copy/contact handlers below are wired up immediately)
+  (async () => {
+    try {
+      const snap = await getDoc(doc(db, "account", "nexteldaniel"));
+      if (snap.exists()) {
+        const d = snap.data();
+        if (d.telegramLink) window._tgLink = d.telegramLink;
+        if (d.whatsappLink) {
+          window._waLink = d.whatsappLink;
+          document.getElementById("waBtn").style.display = "flex";
+          document.getElementById("contactRow").classList.add("two-up");
+        }
+        document.getElementById("bankNameVal").textContent    = d.bankName      || "—";
+        document.getElementById("accountNameVal").textContent = d.accountName   || "—";
+        document.getElementById("accountNum").textContent     = d.accountNumber || "—";
+        window._nxtAccountNumber = d.accountNumber || "";
+      }
+    } catch (err) {
+      console.error("Config load failed:", err);
+      document.getElementById("bankNameVal").textContent    = "—";
+      document.getElementById("accountNameVal").textContent = "—";
     }
-  } catch(_) {}
+  })();
 
   window.copyAccount = function() {
     const num = document.getElementById("accountNum").textContent;
@@ -318,6 +343,10 @@ body{
 
   window.contactTelegram = function() {
     window.open(window._tgLink || "https://t.me/coachfavour321", "_blank");
+  };
+
+  window.contactWhatsapp = function() {
+    if (window._waLink) window.open(window._waLink, "_blank");
   };
 </script>
 

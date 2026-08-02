@@ -534,10 +534,31 @@
         <div class="m-icon" id="modalIcon"><i class="fa-solid fa-lock"></i></div>
         <h3 id="modalTitle">Activate Your Account</h3>
         <p id="modalText">Activate your account to unlock this feature and start using all of Nextel Connect.</p>
-        <button onclick="activateAccount()">Activate Account</button>
+        <button id="activateBtn" onclick="activateAccount()">Activate Account</button>
         <button class="dismiss" onclick="closeModal()">Not now</button>
     </div>
 </div>
+
+<!-- ── Firestore config (payment links + toggle, managed from admin.html) ── -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    const app = initializeApp({
+        apiKey:            "AIzaSyDrnmtx0LkfMKytzTKQZwXCg1JKZXiJmtU",
+        authDomain:        "glamour-28049.firebaseapp.com",
+        projectId:         "glamour-28049",
+        storageBucket:     "glamour-28049.firebasestorage.app",
+        messagingSenderId: "22177815395",
+        appId:             "1:22177815395:web:2ca7caa2b1626299675156"
+    });
+    const db = getFirestore(app, "(default)");
+
+    // Fetched once on load; activateAccount() awaits this promise.
+    window.__nxtConfigReady = getDoc(doc(db, "account", "nexteldaniel"))
+        .then(snap => (snap.exists() ? snap.data() : {}))
+        .catch(err => { console.error("Config load failed:", err); return {}; });
+</script>
 
 <script>
     // ── Read user from localStorage (set by register.html) ──
@@ -548,15 +569,16 @@
 
     // ⚠️ DEMO FILE — this page shows seeded test figures (package amount + welcome bonus)
     // so the team can review the balance UI. The live dashboard.html stays at ₦0.
+    // linkField = which Firestore field holds this plan's payment link
     const PLANS = {
         'eSIM': {
             chip: 'eSIM', fee: '₦10,500', amount: 10500, bonus: 5000, poolCap: 50,
-            payLink: 'https://pay.squadco.com/W92HJ6',
+            linkField: 'paymentLink1',
             perks: ['On & Off Net earnings', 'Personal number pool', '24/7 autopilot', 'Bank withdrawals']
         },
         'Royal eSIM': {
             chip: 'Royal eSIM', fee: '₦17,500', amount: 17500, bonus: 12000, poolCap: 120,
-            payLink: 'https://pay.squadco.com/DW85LG',
+            linkField: 'paymentLink2',
             perks: ['Everything in eSIM', 'Larger number pool', 'Priority earnings', 'Priority support']
         }
     };
@@ -669,19 +691,46 @@
     }
     function closeModal() { document.getElementById('modal').classList.remove('show'); }
 
-    function activateAccount() {
-    sessionStorage.setItem('nxt_payment', JSON.stringify({ planName: plan, amount: cfg.amount }));
-    
-    if (cfg.amount == 10500) {
-        window.location.href = 'https://flutterwave.com/pay/awykdpgiflxw';
+    // ── Activation routing ──
+    // usePaymentLink === true  → send the user straight to the plan's payment link
+    //                            (paymentLink1 = eSIM, paymentLink2 = Royal eSIM)
+    // otherwise, or link unset → payment.html (bank transfer, details from Firestore)
+    async function activateAccount() {
+        const btn   = document.getElementById('activateBtn');
+        const label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Please wait…';
+
+        // Carry the package details across, whichever route we take
+        sessionStorage.setItem('nxt_payment', JSON.stringify({
+            planName: plan,
+            amount:   cfg.amount,
+            fee:      cfg.fee,
+            username: username,
+            fullName: store('nxt_fullname', ''),
+            email:    store('nxt_email', '')
+        }));
+
+        // Don't hang forever if Firestore is slow/unreachable — fall through to payment.html
+        const config = await Promise.race([
+            window.__nxtConfigReady || Promise.resolve({}),
+            new Promise(resolve => setTimeout(() => resolve({}), 8000))
+        ]).catch(() => ({}));
+
+        btn.disabled = false;
+        btn.textContent = label;
+
+        if (config.usePaymentLink === true) {
+            const link = (config[cfg.linkField] || '').trim();
+            if (/^https?:\/\//i.test(link)) {
+                window.location.href = link;
+                return;
+            }
+            showToast('Payment link unavailable — using bank transfer');
+        }
+
+        window.location.href = 'payment.html';
     }
-    else if (cfg.amount == 17500) {
-        window.location.href = 'https://flutterwave.com/pay/bntdagcyxyxc';
-    }
-    else {
-        window.location.href = 'payment.html';  // fallback
-    }
-}
     function showToast(msg) {
         const t = document.createElement('div');
         t.className = 'toast'; t.textContent = msg;
